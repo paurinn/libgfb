@@ -91,8 +91,6 @@ static inline void gfb_alphablit(gfb_surface_t *pdest, gfb_rect_t *pdestrect, gf
 	uint8_t *psourcerow = &psource->ppixels[psourcerect->y * psource->pitch + (psourcerect->x * psource->pformat->bytesperpixel)];
 	uint8_t *pdestrow = &pdest->ppixels[pdestrect->y * pdest->pitch + (pdestrect->x * pdest->pformat->bytesperpixel)];
 
-	printf("nlines: %d\n", nlines);
-
 	for (; nlines >= 0; nlines--) {
 		int i;
 
@@ -329,13 +327,15 @@ static inline void dumprect(gfb_rect_t *prect) {
 	fprintf(stderr, "xy(%d, %d) : wh(%d, %d)\n", prect->x, prect->y, prect->w, prect->h);
 }
 
-/* blit using per-pixel alpha, ignoring any colour key */
-static inline void gfb_ftbitmapblit( gfb_surface_t *pdest, gfb_rect_t *pdestrect, FT_Bitmap *psource, gfb_rect_t *psourcerect, gfb_color_t colorf) {
+/*
+blit using per-pixel alpha, ignoring any colour key
+*/
+static inline void gfb_ftbitmapblit( gfb_surface_t *pdest, gfb_rect_t *pdestrect, FT_Bitmap *psource, gfb_rect_t *psourcerect, gfb_color_t colorf, gfb_color_t colorb) {
 	int ncols = gfb_mini(pdestrect->w, psourcerect->w);
 	int nlines = gfb_mini(pdestrect->h, psourcerect->h);
 
-	uint8_t *psourcerow = &psource->buffer[(psourcerect->y * psource->pitch) + psourcerect->x];
-	uint8_t *pdestrow = &pdest->ppixels[pdestrect->y * pdest->pitch + (pdestrect->x * pdest->pformat->bytesperpixel)];
+	uint8_t *psourcerow = &psource->buffer[((psourcerect->y) * psource->pitch) + psourcerect->x];
+	uint8_t *pdestrow = &pdest->ppixels[(pdestrect->y) * pdest->pitch + (pdestrect->x * pdest->pformat->bytesperpixel)];
 
 	(void)colorf;
 	uint8_t sr = (uint8_t)((colorf & pdest->pformat->rmask) >> pdest->pformat->rshift);
@@ -352,12 +352,10 @@ static inline void gfb_ftbitmapblit( gfb_surface_t *pdest, gfb_rect_t *pdestrect
 			uint8_t sa = *srcpix;
 
 			//Fetch and decode destination pixel.
-			gfb_color_t color;
-			memcpy(&color, dstpix, pdest->pformat->bytesperpixel);
-			uint8_t da = (uint8_t)((color & pdest->pformat->amask) >> pdest->pformat->ashift);
-			uint8_t dr = (uint8_t)((color & pdest->pformat->rmask) >> pdest->pformat->rshift);
-			uint8_t dg = (uint8_t)((color & pdest->pformat->gmask) >> pdest->pformat->gshift);
-			uint8_t db = (uint8_t)((color & pdest->pformat->bmask) >> pdest->pformat->bshift);
+			uint8_t da = (uint8_t)((colorb & pdest->pformat->amask) >> pdest->pformat->ashift);
+			uint8_t dr = (uint8_t)((colorb & pdest->pformat->rmask) >> pdest->pformat->rshift);
+			uint8_t dg = (uint8_t)((colorb & pdest->pformat->gmask) >> pdest->pformat->gshift);
+			uint8_t db = (uint8_t)((colorb & pdest->pformat->bmask) >> pdest->pformat->bshift);
 
 			float a = (float)sa / 255.0f;
 
@@ -384,7 +382,11 @@ static inline void gfb_ftbitmapblit( gfb_surface_t *pdest, gfb_rect_t *pdestrect
 
 
 GFB_PUTPIXEL(gfb_soft_putpixel) {
-	memcpy((uint8_t *)&psurface->pbuffer[(y * psurface->pitch) + (x * psurface->pformat->bytesperpixel)], &color, psurface->pformat->bytesperpixel);
+	memcpy(
+		(uint8_t *)&psurface->pbuffer[ psurface->prowoffsets[y] + psurface->pcoloffsets[x] ],
+		&color,
+		psurface->pformat->bytesperpixel
+	);
 	return GFB_OK;
 }
 
@@ -435,8 +437,19 @@ GFB_FLIP(gfb_soft_flip) {
 }
 
 GFB_CLEAR(gfb_soft_clear) {
-	memset(psurface->pbuffer , 0x00, (psurface->pitch * psurface->h));
-	return GFB_OK;
+	int rc = GFB_OK;
+
+	if (
+		   psurface->cliprect.x == 0
+		&& psurface->cliprect.y == 0
+		&& psurface->cliprect.w == psurface->w
+		&& psurface->cliprect.h == psurface->h
+	) {
+		memset(psurface->pbuffer , 0x00, (psurface->pitch * psurface->h));
+	} else {
+		rc = gfb_filledrectangle(psurface, NULL, 0x000000);
+	}
+	return rc;
 }
 
 GFB_LINE(gfb_soft_line) {
@@ -547,7 +560,7 @@ GFB_FILLEDRECTANGLE(gfb_soft_filledrectangle) {
 
 	//Copy first line over the rest of the rectangle.
 	idx = ((yoff + psurface->pitch) + xoff); //Byte offset of second line.
-	for (y = prect->y; y <= prect->y + prect->h; y++) {
+	for (y = prect->y; y < prect->y + prect->h; y++) {
 	    memcpy((uint8_t *)&psurface->pbuffer[idx], (uint8_t *)&psurface->pbuffer[idx1], pixbytes);
 	    idx += psurface->pitch; //Move to next line.
 	}
@@ -614,7 +627,6 @@ GFB_POLYGON(gfb_soft_polygon) {
 		y1 = ppoints[i].y;
 		x2 = ppoints[i+1].x;
 		y2 = ppoints[i+1].y;
-		printf("line (%d, %d) to (%d, %d)\n", x1, y1, x2, y2);
 		if ((rc = psurface->op->line(psurface, x1, y1, x2, y2, color)) != GFB_OK) {
 			return rc;
 		}
@@ -809,7 +821,7 @@ static inline int utf8_get_next_char(const unsigned char *str, size_t str_size, 
 	return 1;
 }
 
-//FIXME, glyph cache!
+//FIXME, kerning and glyph cache!
 GFB_TEXT(gfb_soft_text) {
 	FT_GlyphSlot slot = gfb_fontstore[fontid]->glyph;
 	FT_Vector pen;
@@ -827,7 +839,7 @@ GFB_TEXT(gfb_soft_text) {
 	/* the pen position in 26.6 cartesian space coordinates; */
 	/* start at (x,y) relative to the upper left corner  */
 	pen.x = x * 64;
-	pen.y = ( abs((psurface->cliprect.x + psurface->cliprect.w) - psurface->cliprect.x) - y ) * 64;
+	pen.y = y * 64;
 
 	gfb_rect_t destrect;
 	gfb_rect_t srcrect;
@@ -843,17 +855,17 @@ GFB_TEXT(gfb_soft_text) {
 
 		if (slot->bitmap.width > 0 && slot->bitmap.rows > 0) {
 			/* now, draw to our target surface (convert position) */
-			destrect.x = slot->bitmap_left;
-			destrect.y = psurface->cliprect.h - slot->bitmap_top;
-			destrect.w = slot->bitmap.width-1;
-			destrect.h = slot->bitmap.rows-1;
+			destrect.x = pen.x / 64;
+			destrect.y = (pen.y / 64) - (slot->metrics.horiBearingY / 64);
+			destrect.w = slot->bitmap.width;
+			destrect.h = slot->bitmap.rows;
 
 			srcrect.x = 0;
 			srcrect.y = 0;
-			srcrect.w = slot->bitmap.width-1;
+			srcrect.w = slot->bitmap.width;
 			srcrect.h = slot->bitmap.rows-1;
 
-			gfb_ftbitmapblit( psurface, &destrect, &slot->bitmap, &srcrect, colorf);
+			gfb_ftbitmapblit( psurface, &destrect, &slot->bitmap, &srcrect, colorf, colorb);
 		}
 
 		/* increment pen position */
@@ -939,15 +951,43 @@ int gfb_surface_create(gfb_surface_t **ppsurface, int width, int height, gfb_pix
 
 	(*ppsurface)->cliprect.x = 0;
 	(*ppsurface)->cliprect.y = 0;
-	(*ppsurface)->cliprect.w = width - 1;
-	(*ppsurface)->cliprect.h = height - 1;
+	(*ppsurface)->cliprect.w = width;
+	(*ppsurface)->cliprect.h = height;
 
 	(*ppsurface)->pitch = (width * gfb_pixelformats[format].bytesperpixel);
 
+	(*ppsurface)->prowoffsets = calloc(1, sizeof(uint32_t) * height);
+	if ((*ppsurface)->prowoffsets == NULL) {
+		if (flags & GFB_PREALLOCATE) {
+			free((*ppsurface)->ppixels);
+		}
+		free(*ppsurface);
+		*ppsurface = NULL;
+		return GFB_ENOMEM;
+	}
+
+	(*ppsurface)->pcoloffsets = calloc(1, sizeof(uint32_t) * width);
+	if ((*ppsurface)->pcoloffsets == NULL) {
+		if (flags & GFB_PREALLOCATE) {
+			free((*ppsurface)->ppixels);
+		}
+		free((*ppsurface)->prowoffsets);
+		free(*ppsurface);
+		*ppsurface = NULL;
+		return GFB_ENOMEM;
+	}
+
+	for (int i = 0; i < height; i++) {
+		(*ppsurface)->prowoffsets[i] = (*ppsurface)->pitch * i;
+	}
+
+	for (int i = 0; i < width; i++) {
+		(*ppsurface)->pcoloffsets[i] = gfb_pixelformats[format].bytesperpixel * i;
+	}
 	if (pdevop != NULL) {
-	    (*ppsurface)->op = pdevop;
+		(*ppsurface)->op = pdevop;
 	} else {
-	    (*ppsurface)->op = &gfb_soft_devops;
+		(*ppsurface)->op = &gfb_soft_devops;
 	}
 
 	return GFB_OK;
@@ -963,7 +1003,14 @@ void gfb_surface_destroy(gfb_surface_t **ppsurface) {
 			(*ppsurface)->ppixels = NULL;
 			(*ppsurface)->pbuffer = NULL;
 		}
-		free(*ppsurface);
+		if ((*ppsurface)->prowoffsets != NULL) {
+			free((*ppsurface)->prowoffsets);
+			(*ppsurface)->prowoffsets = NULL;
+		}
+		if ((*ppsurface)->pcoloffsets != NULL) {
+			free((*ppsurface)->pcoloffsets);
+			(*ppsurface)->pcoloffsets = NULL;
+		}
 	}
 
 	*ppsurface = NULL;
@@ -1193,10 +1240,10 @@ int gfb_setcliprect(gfb_surface_t *psurface, gfb_rect_t *prect) {
 
 	//Copy or resize cliprect.
 	if (prect == NULL) {
-	    psurface->cliprect.x = 1;
-	    psurface->cliprect.y = 1;
-	    psurface->cliprect.w = psurface->w - 1;
-	    psurface->cliprect.h = psurface->h - 1;
+	    psurface->cliprect.x = 0;
+	    psurface->cliprect.y = 0;
+	    psurface->cliprect.w = psurface->w;
+	    psurface->cliprect.h = psurface->h;
 	} else {
 	    memcpy(&psurface->cliprect, prect, sizeof(gfb_rect_t));
 	}
@@ -1277,9 +1324,9 @@ int gfb_clear(gfb_surface_t *psurface) {
 int gfb_line(gfb_surface_t *psurface, int x1, int y1, int x2, int y2, gfb_color_t color) {
 	if (psurface == NULL) return GFB_EARGUMENT;
 	x1 = gfb_clampi(x1, psurface->cliprect.x, psurface->cliprect.x + psurface->cliprect.w);
-	x2 = gfb_clampi(x1, psurface->cliprect.x, psurface->cliprect.x + psurface->cliprect.w);
+	x2 = gfb_clampi(x2, psurface->cliprect.x, psurface->cliprect.x + psurface->cliprect.w);
 	y1 = gfb_clampi(y1, psurface->cliprect.y, psurface->cliprect.y + psurface->cliprect.h);
-	y2 = gfb_clampi(y1, psurface->cliprect.y, psurface->cliprect.y + psurface->cliprect.h);
+	y2 = gfb_clampi(y2, psurface->cliprect.y, psurface->cliprect.y + psurface->cliprect.h);
 	return psurface->op->line(psurface, x1, y1, x2, y2, color);
 }
 
@@ -1291,10 +1338,10 @@ int gfb_rectangle(gfb_surface_t *psurface, gfb_rect_t *prect, gfb_color_t color)
 	if (prect != NULL) {
 	    rect = gfb_cliprect(prect, &psurface->cliprect);
 	} else {
-	    rect.x = 0;
-	    rect.w = psurface->w;
-	    rect.y = 0;
-	    rect.h = psurface->h;
+	    rect.x = psurface->cliprect.x;
+	    rect.w = psurface->cliprect.w;
+	    rect.y = psurface->cliprect.y;
+	    rect.h = psurface->cliprect.h;
 	}
 
 	return psurface->op->rectangle(psurface, &rect, color);
@@ -1308,10 +1355,10 @@ int gfb_filledrectangle(gfb_surface_t *psurface, gfb_rect_t *prect, gfb_color_t 
 	if (prect != NULL) {
 	    rect = gfb_cliprect(prect, &psurface->cliprect);
 	} else {
-	    rect.x = 0;
-	    rect.w = psurface->w;
-	    rect.y = 0;
-	    rect.h = psurface->h;
+	    rect.x = psurface->cliprect.x;
+	    rect.w = psurface->cliprect.w;
+	    rect.y = psurface->cliprect.y;
+	    rect.h = psurface->cliprect.h;
 	}
 
 	return psurface->op->filledrectangle(psurface, &rect, colorb);
@@ -1390,9 +1437,9 @@ gfb_font_id gfb_ttf_load_memory(uint8_t *pttf, size_t ttfsize) {
 	e = FT_Set_Char_Size(
 		gfb_fontstore[i],	/* Handle to face object.			*/
 		0,					/* Char_width in 1/64th of points.	*/
-		16*64,				/* Char_height in 1/64th of points.	*/
-		300,				/* Horizontal device resolution.	*/
-		300					/* Vertical device resolution.		*/
+		32*64,				/* Char_height in 1/64th of points.	*/
+		72,				/* Horizontal device resolution.	*/
+		72					/* Vertical device resolution.		*/
 	);
 
 	if (e) {
@@ -1405,7 +1452,26 @@ gfb_font_id gfb_ttf_load_memory(uint8_t *pttf, size_t ttfsize) {
 //FIXME, solve this buffering
 static uint16_t text[1024];
 
-int gfb_text(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, char *pzutf8, size_t count, gfb_color_t colorf) {
+int gfb_textu(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, uint16_t *punicode, size_t count, gfb_color_t colorf, gfb_color_t colorb) {
+	if (
+		   psurface == NULL
+		|| fontid >= MAX_GFB_FONT
+		|| gfb_fontstore[fontid] == NULL
+		|| ptsize < 1
+		|| punicode == NULL
+		|| count == 0
+	) {
+		return GFB_EARGUMENT;
+	}
+
+	/* FIXME using 75dpi */
+	FT_Error error = FT_Set_Char_Size( gfb_fontstore[fontid], ptsize * 64, 0, 100, 0 );
+	if (error) return GFB_ERROR;
+
+	return psurface->op->text(psurface, fontid, x, y, punicode, count, colorf, colorb);
+}
+
+int gfb_text(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, char *pzutf8, size_t count, gfb_color_t colorf, gfb_color_t colorb) {
 	if (
 		   psurface == NULL
 		|| fontid >= MAX_GFB_FONT
@@ -1440,7 +1506,7 @@ int gfb_text(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x,
 		if (n > 0) --n;
 	}
 
-	return psurface->op->text(psurface, fontid, x, y, &text[0], i, colorf);
+	return psurface->op->text(psurface, fontid, x, y, &text[0], i, colorf, colorb);
 }
 
 

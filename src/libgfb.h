@@ -107,8 +107,8 @@ typedef enum gfb_pixelformat_id {
 /** Pixel format configuration. */
 typedef struct gfb_pixelformat {
     gfb_pixelformat_id_t id;	/**< Pixel format identifier. */
-    uint8_t bitsperpixel;		/**< Number of bits per pixel. */
-    uint8_t bytesperpixel;		/**< Number of bytes per pixel. */
+    uint32_t bitsperpixel;		/**< Number of bits per pixel. */
+    uint32_t bytesperpixel;		/**< Number of bytes per pixel. */
     uint8_t ashift;				/**< How many left shifts for the alpha component. */
     uint8_t rshift;				/**< How many left shifts for the red component. */
     uint8_t gshift;				/**< How many left shifts for the green component. */
@@ -261,10 +261,10 @@ typedef GFB_POLYGON(*gfb_polygon_t);
 /** Function pointer to a flood fill routine. */
 typedef GFB_FLOODFILL(*gfb_floodfill_t);
 
-/** Macro to define and declare a routine to render out UTF8 string. */
-#define GFB_TEXT(_gfb_text_name) int (_gfb_text_name)(struct gfb_surface *psurface, gfb_font_id fontid, int x, int y, uint16_t *text, size_t count, gfb_color_t colorf)
+/** Macro to define and declare a routine to render out Unicode array. */
+#define GFB_TEXT(_gfb_text_name) int (_gfb_text_name)(struct gfb_surface *psurface, gfb_font_id fontid, int x, int y, uint16_t *text, size_t count, gfb_color_t colorf, gfb_color_t colorb)
 
-/** Function pointer to a UTF8 string render. */
+/** Function pointer to a Unicode array render. */
 typedef GFB_TEXT(*gfb_text_t);
 
 
@@ -326,6 +326,8 @@ typedef struct gfb_surface {
 	//Both variables must point to memory within ppixelmemory[].
 	uint8_t *ppixels;			/**< Pointer to the primary pixel buffer. This is what gfb_blit() copies from. */
 	uint8_t *pbuffer;			/**< Pointer to the secondary pixel buffer. This is what all operations use, besides gfb_blit(). */
+	uint32_t *prowoffsets;		/**< Array of offsets into `ppixels[]` where each pixel row starts. */
+	uint32_t *pcoloffsets;		/**< Array of offsets into `ppixels[]` where each pixel column starts. */
 } gfb_surface_t;
 
 
@@ -644,6 +646,23 @@ Load true-type file from memory.
 gfb_font_id gfb_ttf_load_memory(uint8_t *pttf, size_t ttfsize);
 
 /**
+Render an array of Unicode glyphs.
+This is a front-end for FreeType2.
+@param psurface Pointer to the surface to draw on.
+@param fontid Id of the font to use, see gfb_ttf_load_memory().
+@param ptsize Font point size.
+@param x Left pixel position.
+@param y Top pixel position.
+@param punicode Pointer to an array of Unicode glyphs.
+@param count how many characters (not bytes) to print from punicode[].
+@param colorf Color of the text.
+@param colorb Color of the backgroun.
+@return On success returns GFB_OK.
+@return On failure a negative error code is returned (GFB_Exxx).
+*/
+int gfb_textu(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, uint16_t *punicode, size_t count, gfb_color_t colorf, gfb_color_t colorb);
+
+/**
 Render UTF8 encoded NUL terminated string.
 This is a front-end for FreeType2.
 
@@ -655,10 +674,11 @@ This is a front-end for FreeType2.
 @param pzutf8 Pointer to NUL terminated UTF8 encoded string.
 @param count how many characters (not bytes) to print from pzutf8.
 @param colorf Color of the text.
+@param colorb Color of the backgroun.
 @return On success returns GFB_OK.
 @return On failure a negative error code is returned (GFB_Exxx).
 */
-int gfb_text(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, char *pzutf8, size_t count, gfb_color_t colorf);
+int gfb_text(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, char *pzutf8, size_t count, gfb_color_t colorf, gfb_color_t colorb);
 
 /**
 Returns a short copyright and license clause.
