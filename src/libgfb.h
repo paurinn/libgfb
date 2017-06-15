@@ -1,6 +1,6 @@
 /*
 libgfb - Library of Graphic Routines for Frame Buffers.
-Copyright (C) 2016  Kari Sigurjonsson
+Copyright (C) 2016-2017  Kari Sigurjonsson
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Lesser General Public License as published by
@@ -140,6 +140,7 @@ typedef enum gfb_return {
     GFB_EFILEOPEN		= (-5), /**< File open error. */
     GFB_EFILEREAD		= (-6), /**< File read error. */
     GFB_EFILEWRITE		= (-7), /**< File write error. */
+	GFB_EWOULDCLIP		= (-8),	/**< Drawing operation would result in out of bounds write. */
 } gfb_return_t;
 
 /** 2D position. */
@@ -432,6 +433,8 @@ The bitmap file format must be version 3.
 @param ppixels Pointer to pixel buffer or NULL to malloc() automatically. Ignored if flags contains GFB_PREALLOCATE.
 @param pdevop Pointer to device accelerated operations or NULL to use built-in software implemenations.
 @param pzpath Pointer to a zero terminated string with a path to the bitmap file.
+@return On success, returns GFB_OK.
+@return On failure, returns an error code (GFB_Exxx).
 */
 int gfb_surface_load_bmp3(gfb_surface_t **ppsurface, gfb_pixelformat_id_t format, gfb_flag_id_t flags, uint8_t *ppixels, gfb_devop_t *pdevop, const char *pzpath);
 
@@ -478,8 +481,8 @@ Pixels are only drawn inside this rectangle.
 If prect is NULL the clipping rectangle is set to the full surface dimensions.
 @param psurface Pointer to the surface to change.
 @param prect Pointer to a rectangle or NULL to use psurface size.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_setcliprect(gfb_surface_t *psurface, gfb_rect_t *prect);
 
@@ -487,8 +490,8 @@ int gfb_setcliprect(gfb_surface_t *psurface, gfb_rect_t *prect);
 Set overall alpha value of a surface.
 The surface flag GFB_ALPHABLEND is set automatically.
 @param alpha The new alpha value.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_setalpha(gfb_surface_t *psurface, uint8_t alpha);
 
@@ -496,8 +499,8 @@ int gfb_setalpha(gfb_surface_t *psurface, uint8_t alpha);
 Set color key value of a surface.
 The surface flag GFB_SRCCOLORKEY is set automatically.
 @param colorkey The new color key (see gfb_maprgba()).
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_setcolorkey(gfb_surface_t *psurface, gfb_color_t colorkey);
 
@@ -511,8 +514,8 @@ Draw a single pixel on surface.
 @param x Left pixel position.
 @param y Top pixel position.
 @param pixel The encoded pixel value.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_putpixel(gfb_surface_t *psurface, int x, int y, gfb_color_t color);
 
@@ -525,10 +528,10 @@ Read pixel from surface.
 @param pred Pointer where to store the red component.
 @param pgreen Pointer where to store the green component.
 @param pblue Pointer where to store the blue component.
-@return On success returns GFB_OK.
-@return On failure returns error code (GFB_Exxx).
+@return On success, returns the pixel color.
+@return On any failure, returns 0.
 */
-int gfb_getpixel(gfb_surface_t *psurface, int x, int y, uint8_t *palpha, uint8_t *pred, uint8_t *pgreen, uint8_t *pblue);
+gfb_color_t gfb_getpixel(gfb_surface_t *psurface, int x, int y, uint8_t *palpha, uint8_t *pred, uint8_t *pgreen, uint8_t *pblue);
 
 /**
 Copy pixels from one surface to another.
@@ -538,24 +541,24 @@ Very important that both surfaces are of the same pixel format.
 @param pdestrect Pointer to destination rectangle or NULL to use (0, 0).
 @param psource Pointer to source surface.
 @param psourcerect Pointer to source rectangle or NULL to copy whole surface.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_blit(gfb_surface_t *pdest, gfb_rect_t *pdestrect, gfb_surface_t *psource, gfb_rect_t *psourcerect);
 
 /**
 Flip between primary and secondary frame buffers (double buffering).
 @param pdest Pointer to the surface to flip.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_flip(gfb_surface_t *psurface);
 
 /**
 Clear whole frame buffer area to black.
 @param psurface Pointer to the surface to draw on.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_clear(gfb_surface_t *psurface);
 
@@ -566,8 +569,8 @@ int gfb_clear(gfb_surface_t *psurface);
 @param x2 Left pixel position of end point of line.
 @param y2 Top pixel position of end point of line.
 @param color Encoded pixel value.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_line(gfb_surface_t *psurface, int x1, int y1, int x2, int y2, gfb_color_t color);
 
@@ -576,8 +579,8 @@ Draw a rectangle.
 @param psurface Pointer to the surface to draw on.
 @param prect Pointer to the rectangle configuration.
 @param color Encoded pixel value.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_rectangle(gfb_surface_t *psurface, gfb_rect_t *prect, gfb_color_t color);
 
@@ -598,8 +601,8 @@ Draw a filled rectangle.
 @param psurface Pointer to the surface to draw on.
 @param prect Pointer to the rectangle configuration.
 @param colorb Encoded pixel value of the fill color.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_filledrectangle(gfb_surface_t *psurface, gfb_rect_t *prect, gfb_color_t colorb);
 
@@ -611,6 +614,8 @@ Draw a filled circle.
 @param radius Circle radius.
 @param colorf Encoded pixel value of the outline color.
 @param colorb Encoded pixel value of the fill color.
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_filledcircle(gfb_surface_t *psurface, int x, int y, int radius, gfb_color_t colorf, gfb_color_t colorb);
 
@@ -620,8 +625,8 @@ Draw lines between the given polygon points.
 @param ppoints Pointer to an array of gfb_point_t.
 @param count Number of items in ppoints array.
 @param color Encoded pixel value of the outline color.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_polygon(struct gfb_surface *psurface, gfb_point_t *ppoints, size_t count, gfb_color_t color);
 
@@ -631,8 +636,8 @@ Fill area of mathing color.
 @param x Left pixel position.
 @param y Top pixel position.
 @param color Encoded pixel value.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_floodfill(gfb_surface_t *psurface, int x, int y, gfb_color_t color);
 
@@ -653,12 +658,12 @@ This is a front-end for FreeType2.
 @param ptsize Font point size.
 @param x Left pixel position.
 @param y Top pixel position.
-@param punicode Pointer to an array of Unicode glyphs.
-@param count how many characters (not bytes) to print from punicode[].
+@param punicode Pointer to the Unicode glyphs.
+@param count How many items to print from punicode[].
 @param colorf Color of the text.
-@param colorb Color of the backgroun.
-@return On success returns GFB_OK.
-@return On failure a negative error code is returned (GFB_Exxx).
+@param colorb Color of the background.
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
 */
 int gfb_textu(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, uint16_t *punicode, size_t count, gfb_color_t colorf, gfb_color_t colorb);
 
@@ -672,13 +677,145 @@ This is a front-end for FreeType2.
 @param x Left pixel position.
 @param y Top pixel position.
 @param pzutf8 Pointer to NUL terminated UTF8 encoded string.
-@param count how many characters (not bytes) to print from pzutf8.
+@param count How many characters (not bytes) to print from pzutf8.
 @param colorf Color of the text.
-@param colorb Color of the backgroun.
+@param colorb Color of the background.
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
+*/
+int gfb_text(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, char *pzutf8, size_t count, gfb_color_t colorf, gfb_color_t colorb);
+
+/** Enumeration of any control flags for a fixed font glyph. */
+typedef enum {
+	GFB_ISFULLWIDTH	= (1<<0)	/**< Glyph takes the full width of the cell. */
+} gfb_fftflags_t;
+
+/** Meta-data for cached fixed font glyph. */
+typedef struct {
+	uint16_t code;		/**< The code point currently in this cache slot. */
+	uint16_t flags;		/**< Flags for each glyph such as half/full width. */
+	uint8_t width;		/**< Width of glyph. */
+	uint8_t height;		/**< Height of glyph. */
+	uint8_t xadvance;	/**< Horizontal kerning. */
+	uint8_t xbearing;	/**< Horizontal bearing. */
+	uint8_t yadvance;	/**< Vertical advance. */
+	uint8_t ybearing;	/**< Distance from baseline to first pixel on Y axis. */
+} gfb_fft_meta_t;
+
+/**
+The fixed font is a cache of pre-rendered glyphs.
+An already loaded TTF font is used as the typeface.
+The TTF font must not be freed before freeing any fixed font descriptor using it.
+*/
+typedef struct {
+	gfb_font_id parentid;	/**< Id of the font used to create this one. */
+	uint16_t count;				/**< The size of the cache. */
+	uint16_t gsize;				/**< How many bytes per glyph. */
+	uint8_t ptsize;				/**< Point size of rendered glyphs. */
+	uint8_t stride;				/**< How many bytes per row. */
+	uint8_t w;					/**< Nominal width of each glyph. */
+	uint8_t h;					/**< Height of each glyph. */
+	uint8_t *pcache;		/**< Allocated glyph cache. Alpha channel. */
+	gfb_fft_meta_t *pmeta;	/**< Pointer to any metadata associated with each cache entry. */
+} gfb_fft_t;
+
+/**
+Create a fixed font cache with N elements from a given TTF font.
+Each pixel in the glyph cache takes one byte so (W*H*N) is the size used by the cache.
+Only the alpha channel is saved and actual pixel values are calculated on runtime.
+
+@param pfft Pointer to the fixed font descriptor to initialize.
+@param fontid Id of the loaded TTF font to use as typeface.
+@param ptsize Point size of the rendered glyphs.
+@param n How many entries in the cache.
+@param w The width of each glyph in pixels.
+@param h The height of each glyph in pixels.
+
+@return On success, returns GFB_OK.
+@return On failure, returns a negative error code is returned (GFB_Exxx).
+*/
+int gfb_fft_create(gfb_fft_t *pfft, gfb_font_id fontid, int ptsize, int n, int w, int h);
+
+/**
+Frees the memory used by the given fixed font descriptor.
+
+@param pfont Pointer to the fixed font descriptor.
+*/
+void gfb_fft_destroy(gfb_fft_t *pfont);
+
+/**
+Renders a glyph into cache if it is not already in there.
+
+@param pfont Pointer to the fixed font descriptor.
+@param code Unicode value of the glyph
+
 @return On success returns GFB_OK.
 @return On failure a negative error code is returned (GFB_Exxx).
 */
-int gfb_text(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x, int y, char *pzutf8, size_t count, gfb_color_t colorf, gfb_color_t colorb);
+int gfb_fft_cache(gfb_fft_t *pfont, uint16_t code);
+
+/**
+Draw a cached glyph onto surface using the given foreground and background colors.
+
+@param psurface Pointer to the surface to draw on.
+@param pfont Pointer to the fixed font descriptor.
+@param code Unicode value of the glyph
+@param x Left pixel position.
+@param y Top pixel position.
+@param xmax Max x position.
+@param ymax Max y position.
+@param colorf Color of the text.
+@param colorb Color of the background.
+
+@return On success returns GFB_OK.
+@return On failure a negative error code is returned (GFB_Exxx).
+*/
+int gfb_fft_draw(gfb_surface_t *pdest, gfb_fft_t *pfont, uint16_t code, int x, int y, int xmax, int ymax, gfb_color_t colorf, gfb_color_t colorb);
+
+/**
+Tell if the given code point is already in the given cache.
+
+@param pfont Pointer to the fixed font descriptor.
+*/
+int gfb_fft_iscached(gfb_fft_t *pfont, uint16_t code);
+
+/**
+Render UTF8 encoded NUL terminated string using a fixed font.
+The rendering takes place inside the given bounding box.
+
+@param psurface Pointer to the surface to draw on.
+@param pfont Pointer to the fixed font descriptor.
+@param x Left pixel position.
+@param y Top pixel position.
+@param w Width in pixels.
+@param h Height in pixels.
+@param pzutf8 Pointer to NUL terminated UTF8 encoded string.
+@param count How many characters (not bytes) to print from pzutf8.
+@param colorf Color of the text.
+@param colorb Color of the background.
+
+@return On success returns GFB_OK.
+@return On failure a negative error code is returned (GFB_Exxx).
+*/
+//int gfb_fft_text(gfb_surface_t *psurface, gfb_fft_t *pfont, int x, int y, char *pzutf8, size_t count, gfb_color_t colorf, gfb_color_t colorb);
+int gfb_fft_text(gfb_surface_t *psurface, gfb_fft_t *pfont, int x, int y, int w, int h, char *pzutf8, size_t count, gfb_color_t colorf, gfb_color_t colorb);
+
+/**
+Render a number of Unicode glyphs.
+
+@param psurface Pointer to the surface to draw on.
+@param pfont Pointer to the fixed font descriptor.
+@param x Left pixel position.
+@param y Top pixel position.
+@param pcodes Pointer to the Unicode glyphs.
+@param count How many items to print from pcodes[].
+@param colorf Color of the text.
+@param colorb Color of the background.
+
+@return On success returns GFB_OK.
+@return On failure a negative error code is returned (GFB_Exxx).
+*/
+int gfb_fft_textU(gfb_surface_t *psurface, gfb_fft_t *pfont, int x, int y, int w, int h, uint16_t *pcodes, size_t count, gfb_color_t colorf, gfb_color_t colorb);
 
 /**
 Returns a short copyright and license clause.

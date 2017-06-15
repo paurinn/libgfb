@@ -1,6 +1,6 @@
 /*
 libgfb - Library of Graphic Routines for Frame Buffers.
-Copyright (C) 2016  Kari Sigurjonsson
+Copyright (C) 2016-2017  Kari Sigurjonsson
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Lesser General Public License as published by
@@ -52,9 +52,6 @@ static FT_Library libft2 = NULL;
 static FT_Face gfb_fontstore[MAX_GFB_FONT] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, };
 
 #define gfb_gcindex(x) (x % MAX_GFB_GLYPH)
-
-/**< Glyph cache. */
-//FIXME static gfb_glyph_t gfb_glyphstore[MAX_GFB_GLYPH] = {{0}};
 
 /** Returns the sign of the given integer, -1, 0 or 1. */
 static inline int sgn(int x) {
@@ -337,7 +334,6 @@ static inline void gfb_ftbitmapblit( gfb_surface_t *pdest, gfb_rect_t *pdestrect
 	uint8_t *psourcerow = &psource->buffer[((psourcerect->y) * psource->pitch) + psourcerect->x];
 	uint8_t *pdestrow = &pdest->ppixels[(pdestrect->y) * pdest->pitch + (pdestrect->x * pdest->pformat->bytesperpixel)];
 
-	(void)colorf;
 	uint8_t sr = (uint8_t)((colorf & pdest->pformat->rmask) >> pdest->pformat->rshift);
 	uint8_t sg = (uint8_t)((colorf & pdest->pformat->gmask) >> pdest->pformat->gshift);
 	uint8_t sb = (uint8_t)((colorf & pdest->pformat->bmask) >> pdest->pformat->bshift);
@@ -554,15 +550,15 @@ GFB_FILLEDRECTANGLE(gfb_soft_filledrectangle) {
 	//Prepare the first line.
 	idx = idx1; //Byte offset of first line
 	for (x = 0; x < pixcount; x++) {
-	    memcpy((uint8_t *)&psurface->pbuffer[idx], &colorb, psurface->pformat->bytesperpixel);
-	    idx += psurface->pformat->bytesperpixel; //Move to next pixel
+		memcpy((uint8_t *)&psurface->pbuffer[idx], &colorb, psurface->pformat->bytesperpixel);
+		idx += psurface->pformat->bytesperpixel; //Move to next pixel
 	}
 
 	//Copy first line over the rest of the rectangle.
 	idx = ((yoff + psurface->pitch) + xoff); //Byte offset of second line.
 	for (y = prect->y; y < prect->y + prect->h; y++) {
-	    memcpy((uint8_t *)&psurface->pbuffer[idx], (uint8_t *)&psurface->pbuffer[idx1], pixbytes);
-	    idx += psurface->pitch; //Move to next line.
+		memcpy((uint8_t *)&psurface->pbuffer[idx], (uint8_t *)&psurface->pbuffer[idx1], pixbytes);
+		idx += psurface->pitch; //Move to next line.
 	}
 
 	return GFB_OK;
@@ -850,7 +846,7 @@ GFB_TEXT(gfb_soft_text) {
 		FT_Set_Transform( gfb_fontstore[fontid], /*&matrix*/ 0, &pen );
 
 		/* load glyph image into the slot (erase previous one) */
-		FT_Error error = FT_Load_Char( gfb_fontstore[fontid], text[n], FT_LOAD_RENDER);// | FT_LOAD_FORCE_AUTOHINT );
+		FT_Error error = FT_Load_Char( gfb_fontstore[fontid], text[n], FT_LOAD_RENDER);
 		if ( error ) continue; /* ignore errors */
 
 		if (slot->bitmap.width > 0 && slot->bitmap.rows > 0) {
@@ -1279,7 +1275,7 @@ int gfb_putpixel(gfb_surface_t *psurface, int x, int y, gfb_color_t color) {
 	return psurface->op->putpixel(psurface, x, y, color);
 }
 
-int gfb_getpixel(gfb_surface_t *psurface, int x, int y, uint8_t *palpha, uint8_t *pred, uint8_t *pgreen, uint8_t *pblue) {
+gfb_color_t gfb_getpixel(gfb_surface_t *psurface, int x, int y, uint8_t *palpha, uint8_t *pred, uint8_t *pgreen, uint8_t *pblue) {
 	if (psurface == NULL || x < psurface->cliprect.x || y < psurface->cliprect.y || x >= (psurface->cliprect.x + psurface->cliprect.w) || y >= (psurface->cliprect.y + psurface->cliprect.h)) return 0;
 	gfb_color_t color = psurface->op->getpixel(psurface, x, y);
 
@@ -1288,7 +1284,7 @@ int gfb_getpixel(gfb_surface_t *psurface, int x, int y, uint8_t *palpha, uint8_t
 	if (pgreen != NULL) *pgreen = (uint8_t)((color & psurface->pformat->gmask) >> psurface->pformat->gshift);
 	if (pblue  != NULL) *pblue  = (uint8_t)((color & psurface->pformat->bmask) >> psurface->pformat->bshift);
 
-	return GFB_OK;
+	return color;
 }
 
 int gfb_blit(gfb_surface_t *pdest, gfb_rect_t *pdestrect, gfb_surface_t *psource, gfb_rect_t *psourcerect) {
@@ -1513,9 +1509,8 @@ int gfb_text(gfb_surface_t *psurface, gfb_font_id fontid, uint8_t ptsize, int x,
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+//Initialize library state.
 int gfb_initialize(void) {
-
-	//Initialize library state.
 	if (libft2 == NULL) {
 		FT_Error e = FT_Init_FreeType( &libft2 );
 		if ( e ) {
@@ -1541,9 +1536,296 @@ void gfb_finalize(void) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+int gfb_fft_create(gfb_fft_t *pfft, gfb_font_id fontid, int ptsize, int n, int w, int h) {
+	memset(pfft, 0x00, sizeof(gfb_fft_t));
+
+	size_t slotSize = ((w * 2) * h) * n;
+
+	pfft->pcache = calloc(1, slotSize);
+	if (pfft->pcache == NULL) {
+		return GFB_ENOMEM;	//Out of memory.
+	}
+
+	size_t metaSize = sizeof (gfb_fft_meta_t) * n;
+
+	pfft->pmeta = calloc(1, metaSize);
+	if (pfft->pmeta == NULL) {
+		free(pfft->pmeta);
+		return GFB_ENOMEM;	//Out of memory.
+	}
+
+	pfft->parentid = fontid;
+	pfft->count = n;
+	pfft->w = w;
+	pfft->h = h;
+	pfft->ptsize = ptsize;
+	pfft->stride = (w * 2);
+	pfft->gsize = ((w * 2) * h);
+
+	printf("Allocated %zu for glyph cache.\r\n", slotSize + metaSize);
+
+	return GFB_OK;
+}
+
+void gfb_fft_destroy(gfb_fft_t *pfont) {
+	if (pfont == NULL) return;
+
+	if (pfont->pmeta != NULL) {
+		free(pfont->pmeta);
+		pfont->pmeta = NULL;
+	}
+
+	if (pfont->pcache != NULL) {
+		free(pfont->pcache);
+		pfont->pcache = NULL;
+	}
+}
+
+int gfb_fft_cache(gfb_fft_t *pfont, uint16_t code) {
+	if (pfont == NULL) return GFB_EARGUMENT;
+
+	uint16_t idx = code % pfont->count;
+
+	if (pfont->pmeta[idx].code == code) {
+		//Already in cache.
+		return GFB_OK;
+	}
+
+	//Clear out cache entry.
+	memset(&pfont->pcache[idx * pfont->gsize], 0x00, pfont->gsize);
+
+	/*FT_Error error = */FT_Set_Char_Size( gfb_fontstore[pfont->parentid], pfont->ptsize * 64, 0, 100, 0 );
+	/* FIXME ignoring errors is not cool */
+
+	FT_GlyphSlot slot = gfb_fontstore[pfont->parentid]->glyph;
+	FT_Vector pen;
+
+	pen.x = 0;
+	pen.y = 0;
+
+	/* set transformation */
+	FT_Set_Transform( gfb_fontstore[pfont->parentid], /*&matrix*/ 0, &pen );
+
+	/* load glyph image into the slot (erase previous one) */
+	/*error = */FT_Load_Char( gfb_fontstore[pfont->parentid], code, FT_LOAD_RENDER);// | FT_LOAD_FORCE_AUTOHINT );
+	/* FIXME ignoring errors is not cool */
+
+	if (slot->bitmap.width > 0 && slot->bitmap.rows > 0) {
+		int ncols = gfb_mini(pfont->w, slot->bitmap.width);
+		int nlines = gfb_mini(pfont->h, slot->bitmap.rows);
+
+		uint8_t *psrcrow = &slot->bitmap.buffer[0];
+		uint8_t *pdstrow = &pfont->pcache[idx * pfont->gsize];
+
+		if (slot->bitmap.width > (unsigned int)(pfont->w)) {
+			pfont->pmeta[idx].flags |= GFB_ISFULLWIDTH;
+		} else {
+			pfont->pmeta[idx].flags &= ~GFB_ISFULLWIDTH;
+		}
+
+		for (int i = 0; i < nlines; i++) {
+			//Copy row over.
+			memcpy(pdstrow, psrcrow, ncols);
+
+			//Advance by row in source and destination buffers.
+			pdstrow += pfont->stride;
+			psrcrow += slot->bitmap.width;
+		}
+	}
+
+	pfont->pmeta[idx].width = (slot->bitmap.width);
+	pfont->pmeta[idx].height = (slot->bitmap.rows);
+	pfont->pmeta[idx].xbearing = (slot->metrics.horiBearingX / 64);
+	pfont->pmeta[idx].ybearing = (slot->metrics.horiBearingY / 64);
+	pfont->pmeta[idx].xadvance = (slot->advance.x / 64);
+
+	pfont->pmeta[idx].code = code;
+
+	return GFB_OK;
+}
+
+int gfb_fft_draw(gfb_surface_t *pdest, gfb_fft_t *pfont, uint16_t code, int x, int y, int xmax, int ymax, gfb_color_t colorf, gfb_color_t colorb) {
+	if (pfont == NULL || x >= pdest->w || y >= pdest->h) return GFB_EARGUMENT;
+
+	uint16_t idx = code % pfont->count;
+
+	gfb_color_t row[256];
+
+	//Prepare a row of background color.
+	for (int i = 0; i < pfont->w; i++) {
+		row[i] = colorb;
+	}
+
+	//Cache this code point if needed.
+	if (pfont->pmeta[idx].code != code) {
+		gfb_fft_cache(pfont, code);
+	}
+
+	//Render the cached entry.
+	int ncols = pfont->pmeta[idx].xadvance;
+	int nlines = pfont->pmeta[idx].height;
+
+	if (x + ncols >= pdest->w || y + nlines >= pdest->h) return GFB_EWOULDCLIP;	//Won't fit on screen.
+	if (x + ncols >= xmax/* FIXME || y + nlines >= ymax*/) {
+		//printf("%d >= %d || %d >= %d\r\n", x + ncols, xmax, y + nlines, ymax);
+		return GFB_EWOULDCLIP;	//Won't fit on target area.
+	}
+
+	uint8_t *psrcrow = &pfont->pcache[idx * pfont->gsize];
+	uint8_t *pdstrow = &pdest->pbuffer[ pdest->prowoffsets[y - pfont->pmeta[idx].ybearing] + pdest->pcoloffsets[x + pfont->pmeta[idx].xbearing] ];
+	uint8_t *pdstrow2 = &pdest->pbuffer[ pdest->prowoffsets[y - pfont->pmeta[idx].ybearing] + pdest->pcoloffsets[x]];
+
+	uint8_t sr = (uint8_t)((colorf & pdest->pformat->rmask) >> pdest->pformat->rshift);
+	uint8_t sg = (uint8_t)((colorf & pdest->pformat->gmask) >> pdest->pformat->gshift);
+	uint8_t sb = (uint8_t)((colorf & pdest->pformat->bmask) >> pdest->pformat->bshift);
+
+	for (int i = 0; i < nlines; i++) {
+
+		uint8_t *psrcpix = psrcrow;
+		uint8_t *pdstpix = pdstrow;
+
+		//FIXME, bytes per color on destination surface!
+		memcpy(pdstrow2, row, ncols * sizeof(gfb_color_t));
+
+		for (int j = 0; j < ncols; j++) {
+			//If within the rendered area.
+			if (i <= pfont->pmeta[idx].height && j <= pfont->pmeta[idx].width) {
+				uint8_t sa = *psrcpix;
+
+				//Fetch and decode destination pixel.
+				uint8_t da = (uint8_t)((colorb & pdest->pformat->amask) >> pdest->pformat->ashift);
+				uint8_t dr = (uint8_t)((colorb & pdest->pformat->rmask) >> pdest->pformat->rshift);
+				uint8_t dg = (uint8_t)((colorb & pdest->pformat->gmask) >> pdest->pformat->gshift);
+				uint8_t db = (uint8_t)((colorb & pdest->pformat->bmask) >> pdest->pformat->bshift);
+
+				float a = (float)sa / 255.0f;
+
+				//Encode and write to destination.
+				gfb_color_t destcolor = gfb_maprgba(
+					pdest,
+					(uint8_t)(a * sr + (1 - a) * dr),
+					(uint8_t)(a * sg + (1 - a) * dg),
+					(uint8_t)(a * sb + (1 - a) * db),
+					da
+				);
+				memcpy(pdstpix, &destcolor, pdest->pformat->bytesperpixel);
+				//gfb_putpixel(pdest, x + j, y + i - pfont->pmeta[idx].ybearing, destcolor);
+
+				//Advance pixel positions.
+				psrcpix += 1;
+				pdstpix += pdest->pformat->bytesperpixel;
+
+			} else {
+				//Fill rest of box with background.
+				memcpy(pdstpix, &colorb, pdest->pformat->bytesperpixel);
+				psrcpix += 1;
+				pdstpix += pdest->pformat->bytesperpixel;
+			}
+		}
+
+		psrcrow += pfont->stride;
+		pdstrow += pdest->pitch;
+		pdstrow2 += pdest->pitch;
+	}
+
+	return GFB_OK;
+}
+
+int gfb_fft_iscached(gfb_fft_t *pfont, uint16_t code) {
+	return (pfont != NULL && pfont->pmeta[(code % pfont->count)].code == code);
+}
+
+int gfb_fft_text(gfb_surface_t *psurface, gfb_fft_t *pfont, int x, int y, int w, int h, char *pzutf8, size_t count, gfb_color_t colorf, gfb_color_t colorb) {
+	if (psurface == NULL || pfont == NULL || count <= 0 || x < 0 || y < 0 || (x + pfont->w) >= psurface->w || (y + pfont->h) >= psurface->h) {
+		return GFB_EARGUMENT;
+	}
+
+	size_t cursor = 0;
+	int is_valid = 0;
+	unsigned int code = 0;
+	size_t zlen = strlen(pzutf8);
+	unsigned int i = 0;
+
+	//Decode UTF-8 string and draw each glyph.
+	while (utf8_get_next_char((uint8_t *)pzutf8, zlen, &cursor, &is_valid, &code)) {
+		if (i >= count) break;
+
+		if (is_valid) {
+			if (gfb_fft_draw(psurface, pfont, code, x, y, x + w, y + h, colorf, colorb) != GFB_OK) break;
+			uint16_t idx = code % pfont->count;
+			x += pfont->pmeta[idx].xadvance;
+		}
+
+		++i;
+	}
+	return GFB_OK;
+}
+
+int gfb_fft_textU(gfb_surface_t *psurface, gfb_fft_t *pfont, int x, int y, int w, int h, uint16_t *pcodes, size_t count, gfb_color_t colorf, gfb_color_t colorb) {
+	//Check for invalid arguments.
+	if (psurface == NULL || pfont == NULL || pcodes == NULL || count == 0) {
+		return GFB_EARGUMENT;
+	}
+
+	//Check for invalid dimensions.
+	if ((h - 6) <= 0 || x < 0 || y < 0 || (x + w) >= psurface->w || (y + h) >= psurface->h) {
+		return GFB_EARGUMENT;
+	}
+
+	gfb_color_t bgrow[256];
+	for (size_t i = 0; i < 256; i++) {
+		bgrow[i] = colorb;
+	}
+
+	uint8_t *pdstrow;
+	int x1, y1, y2;
+
+	x1 = x;
+	for (size_t i = 0; i < count; i++) {
+		//Draw glyph at the baseline.
+		if (gfb_fft_draw(psurface, pfont, pcodes[i], x1, y+(h-6), x + w, y + h, colorf, colorb) != GFB_OK) break;
+		uint16_t idx = pcodes[i] % pfont->count;
+
+		//Fill from top of rect to top of text.
+		y1 = y;
+		y2 = (y + h)-6-pfont->pmeta[idx].ybearing;
+		pdstrow = &psurface->pbuffer[psurface->prowoffsets[y1] + psurface->pcoloffsets[x1]];
+		for (; y1 < y2; y1++) {
+			memcpy(pdstrow, bgrow, (pfont->pmeta[idx].xadvance + pfont->pmeta[idx].xbearing) * 4);
+			pdstrow += psurface->pitch;
+		}
+
+		//Fill from bottom of text to bottom of rect.
+		y1 = y2 + pfont->pmeta[idx].height;
+		y2 = y + h + 1;
+		pdstrow = &psurface->pbuffer[psurface->prowoffsets[y1] + psurface->pcoloffsets[x1]];
+		for (; y1 <= y2; y1++) {
+			memcpy(pdstrow, bgrow, (pfont->pmeta[idx].xadvance + pfont->pmeta[idx].xbearing) * 4);
+			pdstrow += psurface->pitch;
+		}
+
+		x1 += pfont->pmeta[idx].xadvance;
+	}
+
+	if ((x + w + 1) - x1 > 0) {
+		pdstrow = &psurface->pbuffer[psurface->prowoffsets[y] + psurface->pcoloffsets[x1]];
+		int limit = ((x + w + 1) - x1) * 4;
+		for (y1 = y; y1 <= (y + h + 1); y1++) {
+			memcpy(pdstrow, bgrow, limit);
+			pdstrow += psurface->pitch;
+		}
+	}
+
+	return GFB_OK;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+
 static const char const * gfb_copyright_text = "\n"
 "libgfb - Library of Graphic Routines for Frame Buffers.\n"
-"Copyright (C) 2016  Kari Sigurjonsson\n"
+"Copyright (C) 2016-2017  Kari Sigurjonsson\n"
 "\n"
 "This program is free software: you can redistribute it and/or modify\n"
 "it under the terms of the GNU Lesser General Public License as published by\n"
